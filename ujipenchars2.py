@@ -10,6 +10,7 @@ class UJIDrawing(Drawing):
     writer_id: str
 
 
+# Parser za UJI Pen Characters dataset
 class Parser:
     def __init__(self, directory):
         self.data_path = Path(directory).joinpath('ujipenchars2.txt')
