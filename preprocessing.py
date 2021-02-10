@@ -90,8 +90,8 @@ def resample_drawing(drawing: Drawing, n: int) -> Drawing:
 
         resampled_time = np.linspace(0, stroke_length, k)
         resampled_strokes[order] = np.column_stack((
-            np.interp(resampled_time, time, stroke[:, 0]),
-            np.interp(resampled_time, time, stroke[:, 1]),
+            np.interp(resampled_time, time, stroke[:, 0]).astype(np.float32),
+            np.interp(resampled_time, time, stroke[:, 1]).astype(np.float32),
         ))
 
         n -= k
