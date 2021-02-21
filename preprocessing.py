@@ -155,8 +155,7 @@ def rounded_line(draw, xy, width, fill):
         draw.line(xy.flatten(), width=2 * width, fill=fill)
 
 
-# Crta crtež kao sliku, postepeno mijenja boju olovke. Output su dvije slike, na prvoj slici boja se mijenja iz bijele
-# u crnu, a na drugoj iz crne u bijelu.
+# Crta crtež kao sliku.
 #   clip: dio ravnine koji se crta: (x_min, x_max, y_min, y_max)
 #   size: širina i visina slike
 #   width: debljina olovke
@@ -179,9 +178,10 @@ class ImageDrawer:
     def number_of_segments(drawing: Drawing) -> int:
         return sum(stroke.shape[0] for stroke in drawing.strokes) - 1
 
+    # Crta sliku, svaki segment oboji odgovarajućom bojom
     def draw(self, drawing: Drawing, segment_colors: list[int] = None) -> np.ndarray:
         if segment_colors is None:
-            return self.draw(drawing, [255] * ImageDrawer.number_of_segments(drawing))
+            return self.draw(drawing, [255] * ImageDrawer.number_of_segments(drawing))  # Sve crta crnom bojom
         assert ImageDrawer.number_of_segments(drawing) == len(segment_colors)
 
         image = Image.new('L', self.image_size)
