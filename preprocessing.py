@@ -1,7 +1,9 @@
 import numpy as np
 from drawing import Drawing
 from math import ceil
-from typing import Any
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
+from typing import Any, Tuple
+from multiprocessing import Pool
 
 
 class DrawingTransformer:
@@ -10,6 +12,22 @@ class DrawingTransformer:
 
     def transform(self, drawings: list[Drawing]):
         return [self.transform_one(drawing) for drawing in drawings]
+
+
+def bounding_box(drawing: Drawing) -> Tuple[float, float, float, float]:
+    return (
+        min(stroke[:, 0].min() for stroke in drawing.strokes),
+        max(stroke[:, 0].max() for stroke in drawing.strokes),
+        min(stroke[:, 1].min() for stroke in drawing.strokes),
+        max(stroke[:, 1].max() for stroke in drawing.strokes),
+    )
+
+
+def scale_shift_drawing(drawing: Drawing, scale: float, shift: np.ndarray, dtype=np.float32) -> Drawing:
+    return Drawing(
+        label=drawing.label,
+        strokes=[(scale * stroke + shift).astype(dtype) for stroke in drawing.strokes],
+    )
 
 
 # Skalira crteže u [a, b]x[c, d], tako da budu što veći
@@ -26,10 +44,7 @@ class DrawingToBoxScaler(DrawingTransformer):
         self.dtype = dtype
 
     def transform_one(self, drawing: Drawing) -> Drawing:
-        x_min = min(stroke[:, 0].min() for stroke in drawing.strokes)
-        x_max = max(stroke[:, 0].max() for stroke in drawing.strokes)
-        y_min = min(stroke[:, 1].min() for stroke in drawing.strokes)
-        y_max = max(stroke[:, 1].max() for stroke in drawing.strokes)
+        x_min, x_max, y_min, y_max = bounding_box(drawing)
         width = x_max - x_min
         height = y_max - y_min
         assert height > 0 or width > 0
@@ -46,10 +61,19 @@ class DrawingToBoxScaler(DrawingTransformer):
                 self.x_mid - scale * 0.5 * (x_min + x_max),
                 self.y_min - y_min * scale,
             ], dtype=self.dtype)
-        return Drawing(
-            label=drawing.label,
-            strokes=[scale * stroke.astype(self.dtype) + shift for stroke in drawing.strokes],
-        )
+        return scale_shift_drawing(drawing, scale, shift, self.dtype)
+
+
+# Skalira crteže tako da je ukupna duljina strokova 1 i centrira ih oko ishodišta
+class DrawingLengthScaler(DrawingTransformer):
+    def __init__(self, dtype=np.float32):
+        self.dtype = dtype
+
+    def transform_one(self, drawing: Drawing) -> Drawing:
+        x_min, x_max, y_min, y_max = bounding_box(drawing)
+        scale = 1 / sum(time[-1] for time in stroke_times(drawing))
+        shift = -scale * 0.5 * np.array([x_min + x_max, y_min + y_max], dtype=self.dtype)
+        return scale_shift_drawing(drawing, scale, shift, self.dtype)
 
 
 def remove_duplicate_points(drawing: Drawing) -> Drawing:
@@ -100,7 +124,7 @@ class DrawingResampler(DrawingTransformer):
             stroke = drawing.strokes[order]
             time = times[order]
             stroke_length = stroke_lengths_sorted[i]
-            k = ceil(n * stroke_length / remaining_lengths[i])
+            k = min(ceil(n * stroke_length / remaining_lengths[i]), n)
             if len(stroke) >= 1:
                 k = max(k, 1)
             if len(stroke) >= 2:
@@ -118,11 +142,102 @@ class DrawingResampler(DrawingTransformer):
         return Drawing(label=drawing.label, strokes=resampled_strokes)
 
 
-class VideoCreator(DrawingTransformer):
-    def __init__(self, n: int):
-        self.n = n
+# Crte s okruglim rubovima
+def rounded_line(draw, xy, width, fill):
+    for i in range(len(xy)):
+        draw.ellipse((
+            xy[i, 0] - width + 1,
+            xy[i, 1] - width + 1,
+            xy[i, 0] + width - 1,
+            xy[i, 1] + width - 1,
+        ), fill=fill, outline=None)
+    if xy.shape[0] > 1:
+        draw.line(xy.flatten(), width=2 * width, fill=fill)
 
-    def transform_one(self, drawing: Drawing) -> list[Drawing]:
+
+# Crta crtež kao sliku, postepeno mijenja boju olovke. Output su dvije slike, na prvoj slici boja se mijenja iz bijele
+# u crnu, a na drugoj iz crne u bijelu.
+#   clip: dio ravnine koji se crta: (x_min, x_max, y_min, y_max)
+#   size: širina i visina slike
+#   width: debljina olovke
+#   blur_radius: radius gaussian blura
+#   preciznost: npr. za precision=2, sve se crta u 2x većoj rezoluciji, koja se na kraju smanjuje
+class ImageDrawer:
+    def __init__(self, clip=(0, 1, 0, 1), size=(32, 32), width=2, blur_radius=1, precision=2):
+        self.output_size = size
+        self.precision = precision
+        self.image_size = (self.precision * size[0], self.precision * size[1])
+        self.width = self.precision * width
+        self.blur_radius = self.precision * blur_radius
+        self.shift = np.array((clip[0], clip[2]), dtype=np.float32)
+        self.scale = np.array((
+            self.image_size[0] / (clip[1] - clip[0]),
+            self.image_size[1] / (clip[3] - clip[2]),
+        ), dtype=np.float32)
+
+    @staticmethod
+    def number_of_segments(drawing: Drawing) -> int:
+        return sum(stroke.shape[0] for stroke in drawing.strokes) - 1
+
+    def draw(self, drawing: Drawing, segment_colors: list[int] = None) -> np.ndarray:
+        if segment_colors is None:
+            return self.draw(drawing, [255] * ImageDrawer.number_of_segments(drawing))
+        assert ImageDrawer.number_of_segments(drawing) == len(segment_colors)
+
+        image = Image.new('L', self.image_size)
+        draw = ImageDraw.Draw(image)
+
+        segment = 0
+        for stroke in drawing.strokes:
+            assert stroke.shape[0] > 1
+            stroke = (stroke - self.shift) * self.scale
+            for i in range(stroke.shape[0] - 1):
+                rounded_line(draw, stroke[i:i + 1], self.width, segment_colors[segment])
+                segment += 1
+            segment += 1
+
+        image = image.filter(ImageFilter.GaussianBlur(radius=self.blur_radius))
+        image = image.resize(self.output_size)
+        return np.flipud(np.asarray(image))
+
+
+def create_gradient(values, n):
+    values = np.array(values)
+    gradient = np.interp(np.linspace(0, 1, n), values[:, 0], values[:, 1])
+    return list(map(int, np.clip(gradient.astype(np.int64), 0, 255)))
+
+
+# Crta crtež kao sliku, postepeno mijenja boju olovke. Za svaki gradijent crta po jednu sliku
+class GradientCreator(DrawingTransformer):
+    def __init__(self, gradients=None, **kwargs):
+        self.image_drawer = ImageDrawer(**kwargs)
+        if gradients is None:
+            self.gradients = [
+                list(range(1, 256)),  # bijela -> crna
+                list(reversed(range(1, 256))),  # crna -> bijela
+            ]
+        else:
+            self.gradients = gradients
+        self.gradient_length = len(self.gradients[0])
+        # Svi gradijenti jednake duljine
+        assert all(len(g) == self.gradient_length for g in self.gradients)
+        self.drawing_resampler = DrawingResampler(self.gradient_length + 1)  # Jednako segmenata kao boja
+
+    def transform_one(self, drawing: Drawing) -> np.ndarray:
+        drawing = self.drawing_resampler.transform_one(drawing)
+        return np.stack([self.image_drawer.draw(drawing, gradient) for gradient in self.gradients])
+
+    def transform(self, drawings: list[Drawing]):
+        with Pool() as pool:
+            return np.stack(pool.map(self.transform_one, drawings))
+
+
+class VideoCreator(DrawingTransformer):
+    def __init__(self, n: int, **kwargs):
+        self.n = n
+        self.image_drawer = ImageDrawer(**kwargs)
+
+    def transform_one(self, drawing: Drawing) -> np.ndarray:
         video = []
         drawing = remove_duplicate_points(drawing)
         times = stroke_times(drawing)
@@ -145,4 +260,8 @@ class VideoCreator(DrawingTransformer):
                 np.interp(time_until_last_point, time, stroke[:, 1]).astype(np.float32),
             ))
             video.append(Drawing(label=drawing.label, strokes=drawing.strokes[:i - 1] + [last_stroke]))
-        return video
+        return np.stack([self.image_drawer.draw(drawing) for drawing in video])
+
+    def transform(self, drawings: list[Drawing]):
+        with Pool() as pool:
+            return np.stack(pool.map(self.transform_one, drawings))
