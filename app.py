@@ -26,7 +26,8 @@ class Canvas(QWidget):
         super().__init__(parent)
         self.h = h
         self.setFixedHeight(h)
-        self.drawing: Drawing = Drawing("", [], [])
+        self.drawing: Drawing = Drawing("", [])
+        self.curStroke = []
         self.image = QImage()
         self.penDown: bool = False
         self.lastPoint: QPoint = QPoint()
@@ -54,7 +55,8 @@ class Canvas(QWidget):
         super().resizeEvent(event)
 
     def clearImage(self) -> None:
-        self.drawing = Drawing("", [], [])
+        self.drawing = Drawing("", [])
+        self.curStroke = []
         self.image.fill(qRgb(255, 255, 255))
         self.update()
 
@@ -67,7 +69,7 @@ class Canvas(QWidget):
         if event.button() == Qt.LeftButton:
             self.penDown = True
             self.lastPoint = event.pos()
-            self.drawing.curStroke.append(self.lastPoint.toTuple())
+            self.curStroke.append(self.lastPoint.toTuple())
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if (event.buttons() & Qt.LeftButton) and self.penDown:
@@ -77,7 +79,7 @@ class Canvas(QWidget):
         if event.button() == Qt.LeftButton and self.penDown:
             self.drawLineTo(event.pos())
             self.penDown = False
-            self.drawing.strokes.append(np.array(self.drawing.curStroke))
+            self.drawing.strokes.append(np.array(self.curStroke))
             print(self.drawing.strokes)
             self.drawing.curStroke = []
 
@@ -88,7 +90,7 @@ class Canvas(QWidget):
         r = self.penWidth // 2 + 2
         self.update(QRect(self.lastPoint, endPoint).normalized().adjusted(-r, -r, r, r))
         self.lastPoint = endPoint
-        self.drawing.curStroke.append(self.lastPoint.toTuple())
+        self.curStroke.append(self.lastPoint.toTuple())
 
 class Notepad(QTextEdit):
     def __init__(self, parent: QWidget, h: int) -> None:
