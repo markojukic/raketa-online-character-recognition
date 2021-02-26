@@ -1,18 +1,32 @@
 import sys
-from PySide6.QtGui import QResizeEvent, QTabletEvent
 from PySide6.QtCore import *
 from PySide6.QtGui import *
 from PySide6.QtWidgets import *
+import numpy as np
 from typing import Optional
-import time
+from drawing import Drawing
 
+class Buttons(QWidget):
+    def __init__(self, parent: QWidget, h: int) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(h)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.addStretch(0)
+        self.button1 = QPushButton("Obriši")
+        self.button2 = QPushButton("Predvidi")
+        self.button1.setFixedHeight(h/3)
+        self.button2.setFixedHeight(h/3)
+        self.button1.clicked.connect(parent.canvas.clearImage)
+        self.layout.addWidget(self.button1, alignment=Qt.AlignTop)
+        self.layout.addWidget(self.button2, alignment=Qt.AlignTop)
 
 class Canvas(QWidget):
     def __init__(self, parent: QWidget, h: int) -> None:
         super().__init__(parent)
         self.h = h
         self.setFixedHeight(h)
-        self.current_drawing: list[list[int]] = []
+        self.drawing: Drawing = Drawing("", [], [])
         self.image = QImage()
         self.penDown: bool = False
         self.lastPoint: QPoint = QPoint()
@@ -20,6 +34,7 @@ class Canvas(QWidget):
         self.setAttribute(Qt.WA_StaticContents)
         self.brush = QBrush(Qt.GlobalColor.black)
         self.pen = QPen(self.brush, self.penWidth, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        self.dtype = np.float32
 
     def resizeImage(self, image: QImage, newSize: QSize):
         if image.size() == newSize:
@@ -39,6 +54,7 @@ class Canvas(QWidget):
         super().resizeEvent(event)
 
     def clearImage(self) -> None:
+        self.drawing = Drawing("", [], [])
         self.image.fill(qRgb(255, 255, 255))
         self.update()
 
@@ -51,6 +67,7 @@ class Canvas(QWidget):
         if event.button() == Qt.LeftButton:
             self.penDown = True
             self.lastPoint = event.pos()
+            self.drawing.curStroke.append(self.lastPoint.toTuple())
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if (event.buttons() & Qt.LeftButton) and self.penDown:
@@ -60,6 +77,9 @@ class Canvas(QWidget):
         if event.button() == Qt.LeftButton and self.penDown:
             self.drawLineTo(event.pos())
             self.penDown = False
+            self.drawing.strokes.append(np.array(self.drawing.curStroke))
+            print(self.drawing.strokes)
+            self.drawing.curStroke = []
 
     def drawLineTo(self, endPoint: QPoint):
         painter = QPainter(self.image)
@@ -68,35 +88,37 @@ class Canvas(QWidget):
         r = self.penWidth // 2 + 2
         self.update(QRect(self.lastPoint, endPoint).normalized().adjusted(-r, -r, r, r))
         self.lastPoint = endPoint
-
+        self.drawing.curStroke.append(self.lastPoint.toTuple())
 
 class Notepad(QTextEdit):
-    def __init__(self, parent: QWidget) -> None:
+    def __init__(self, parent: QWidget, h: int) -> None:
         super().__init__(parent)
+        self.setFixedHeight(h)
         self.setFontPointSize(16)
         self.setPlainText("HELLO WORLD!")
         print(self.toPlainText())
 
-
-class MainWindow(QWidget):
+class MainWindow(QDialog):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("RaketaPad")
-
-        self.VBoxLayout = QVBoxLayout()
+        self.layout = QVBoxLayout()
+        self.layout.setContentsMargins(QMargins(0, 0, 0, 0))
+        self.layout.setSpacing(0)
         self.canvas = Canvas(self, 200)
-        self.notepad = Notepad(self)
+        self.notepad = Notepad(self, 100)
+        self.buttons = Buttons(self, 100)
 
-        self.VBoxLayout.addWidget(self.canvas)
-        self.VBoxLayout.addWidget(self.notepad)
-        self.setLayout(self.VBoxLayout)
-
+        self.layout.addWidget(self.buttons)
+        self.layout.addWidget(self.canvas)
+        self.layout.addWidget(self.notepad)
+        self.setLayout(self.layout)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
 
     mainWindow = MainWindow()
-    mainWindow.resize(800, 600)
+    mainWindow.resize(800, 500)
     mainWindow.show()
 
     sys.exit(app.exec_())

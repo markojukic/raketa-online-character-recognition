@@ -6,3 +6,4 @@ import numpy as np
 class Drawing:
     label: str
     strokes: list[np.array]
+    curStroke: list
