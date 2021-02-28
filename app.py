@@ -5,44 +5,14 @@ from PySide6.QtWidgets import *
 import numpy as np
 from typing import Optional
 from drawing import Drawing
-from classifier_pickle import load, DTWClassifierPickle, RSIDTWClassifierPickle
-import matplotlib.pyplot as plt
+from classifier_pickle import load
+import time
 
-class Buttons(QWidget):
-    def __init__(self, parent: QWidget, h: int) -> None:
-        super().__init__(parent)
-        self.dtwCls: DTWClassifierPickle = load("models/KNN-DTW.pickle")
-        self.rsidtwCls: RSIDTWClassifierPickle = load("models/KNN-RSIDTW.pickle")
-        self.setFixedHeight(h)
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.addStretch(0)
-        self.button1 = QPushButton("Obriši")
-        self.button2 = QPushButton("Predvidi")
-        self.button1.setFixedHeight(h/3)
-        self.button2.setFixedHeight(h/3)
-        self.button1.clicked.connect(parent.canvas.clearImage)
-        self.button2.clicked.connect(lambda : self.predict(parent.canvas.drawing))
-        self.layout.addWidget(self.button1, alignment=Qt.AlignTop)
-        self.layout.addWidget(self.button2, alignment=Qt.AlignTop)
-
-    def plot_drawing(self, drawing: Drawing):
-        for stroke in drawing.strokes:
-            plt.plot(stroke[:, 0], stroke[:, 1], color='black', linewidth=1, solid_capstyle='round')
-        plt.axis('scaled')
-        plt.show()
-
-    def predict(self, drawing: Drawing):
-        self.plot_drawing(drawing)
-        text = "DTW: {0}\nRSIDTW: {1}".format(self.dtwCls.predict(drawing), self.rsidtwCls.predict(drawing))
-        self.parent().notepad.setPlainText(text)
 
 class Canvas(QWidget):
-    def __init__(self, parent: QWidget, h: int) -> None:
+    def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
-        self.h = h
-        self.setFixedHeight(h)
-        self.drawing: Drawing = Drawing("", [])
+        self.drawing = Drawing('', [])
         self.curStroke = []
         self.image = QImage()
         self.penDown: bool = False
@@ -56,8 +26,8 @@ class Canvas(QWidget):
     def resizeImage(self, image: QImage, newSize: QSize):
         if image.size() == newSize:
             return
-        newImage = QImage(newSize, QImage.Format_RGB32)
-        newImage.fill(qRgb(255, 255, 255))
+        newImage = QImage(newSize, QImage.Format_Grayscale8)
+        newImage.fill(255)
         painter = QPainter(newImage)
         painter.drawImage(QPoint(0, 0), image)
         self.image = newImage
@@ -73,7 +43,7 @@ class Canvas(QWidget):
     def clearImage(self) -> None:
         self.drawing = Drawing("", [])
         self.curStroke = []
-        self.image.fill(qRgb(255, 255, 255))
+        self.image.fill(255)
         self.update()
 
     def paintEvent(self, event: QPaintEvent):
@@ -85,7 +55,7 @@ class Canvas(QWidget):
         if event.button() == Qt.LeftButton:
             self.penDown = True
             self.lastPoint = event.pos()
-            self.curStroke.append((self.lastPoint.x(), -1 * self.lastPoint.y()))
+            self.curStroke.append((self.lastPoint.x(), -self.lastPoint.y()))
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if (event.buttons() & Qt.LeftButton) and self.penDown:
@@ -95,8 +65,7 @@ class Canvas(QWidget):
         if event.button() == Qt.LeftButton and self.penDown:
             self.drawLineTo(event.pos())
             self.penDown = False
-            self.drawing.strokes.append(np.array(self.curStroke))
-            print(self.drawing.strokes)
+            self.drawing.strokes.append(np.array(self.curStroke, dtype=np.float32))
             self.curStroke = []
 
     def drawLineTo(self, endPoint: QPoint):
@@ -106,37 +75,82 @@ class Canvas(QWidget):
         r = self.penWidth // 2 + 2
         self.update(QRect(self.lastPoint, endPoint).normalized().adjusted(-r, -r, r, r))
         self.lastPoint = endPoint
-        self.curStroke.append((self.lastPoint.x(), -1 * self.lastPoint.y()))
+        self.curStroke.append((self.lastPoint.x(), -self.lastPoint.y()))
 
-class Notepad(QTextEdit):
-    def __init__(self, parent: QWidget, h: int) -> None:
-        super().__init__(parent)
-        self.setFixedHeight(h)
-        self.setFontPointSize(16)
-        self.setPlainText("HELLO WORLD!")
-        print(self.toPlainText())
 
 class MainWindow(QDialog):
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, models: dict, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("RaketaPad")
-        self.layout = QVBoxLayout()
-        self.layout.setContentsMargins(QMargins(0, 0, 0, 0))
-        self.layout.setSpacing(0)
-        self.canvas = Canvas(self, 200)
-        self.notepad = Notepad(self, 100)
-        self.buttons = Buttons(self, 100)
+        self.setWindowTitle("Prava Raketa")
+        self.models = models
+        self.canvas = Canvas(self)
+        self.erase_button = QPushButton("Obriši")
+        self.predict_button = QPushButton("Predvidi")
+        self.results = QTableWidget()
+        self.results.setRowCount(len(self.models))
+        self.results.setColumnCount(3)
+        self.results.setHorizontalHeaderLabels(["Model", "Predikcija", "Vrijeme"])
+        self.results.setFixedWidth(400)
+        self.results.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.results.verticalHeader().setVisible(False)
+        self.results.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        for i, name in enumerate(self.models):
+            self.results.setItem(i, 0, QTableWidgetItem(name))
+            self.results.setItem(i, 1, QTableWidgetItem())
+            self.results.setItem(i, 2, QTableWidgetItem())
 
-        self.layout.addWidget(self.buttons)
+        # Events
+        self.erase_button.clicked.connect(self.canvas.clearImage)
+        self.predict_button.clicked.connect(self.print_predictions)
+
+        # Fonts
+        font = self.font()
+        font.setPixelSize(18)
+        self.erase_button.setFont(font)
+        self.predict_button.setFont(font)
+        font.setPixelSize(15)
+        self.results.setFont(font)
+
+        # Buttons
+        self.erase_button.setFixedHeight(30)
+        self.predict_button.setFixedHeight(30)
+
+        # Layouts
+        self.button_layout = QHBoxLayout()
+        self.button_layout.addWidget(self.erase_button)
+        self.button_layout.addWidget(self.predict_button)
+
+        self.results_layout = QVBoxLayout()
+        self.results_layout.addLayout(self.button_layout)
+        self.results_layout.addWidget(self.results)
+
+        self.layout = QHBoxLayout()
         self.layout.addWidget(self.canvas)
-        self.layout.addWidget(self.notepad)
+        self.layout.addLayout(self.results_layout)
         self.setLayout(self.layout)
 
+    def print_predictions(self):
+        for i in range(len(self.models)):
+            self.results.item(i, 1).setText('')
+            self.results.item(i, 2).setText('')
+
+        if self.canvas.drawing.strokes:
+            for i, (_, cls) in enumerate(self.models.items()):
+                start = time.time()
+                self.results.item(i, 1).setText(cls.predict(self.canvas.drawing))
+                self.results.item(i, 2).setText(f'{time.time() - start:.3f}s')
+
+
 if __name__ == '__main__':
+    models = {
+        'KNN: DTW': load("models/KNN-DTW.pickle"),
+        'KNN: RSIDTW': load("models/KNN-RSIDTW.pickle"),
+    }
+
     app = QApplication(sys.argv)
 
-    mainWindow = MainWindow()
-    mainWindow.resize(800, 500)
+    mainWindow = MainWindow(models)
+    mainWindow.resize(900, 500)
     mainWindow.show()
 
     sys.exit(app.exec_())
