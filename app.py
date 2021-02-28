@@ -5,10 +5,14 @@ from PySide6.QtWidgets import *
 import numpy as np
 from typing import Optional
 from drawing import Drawing
+from classifier_pickle import load, DTWClassifierPickle, RSIDTWClassifierPickle
+import matplotlib.pyplot as plt
 
 class Buttons(QWidget):
     def __init__(self, parent: QWidget, h: int) -> None:
         super().__init__(parent)
+        self.dtwCls: DTWClassifierPickle = load("models/KNN-DTW.pickle")
+        self.rsidtwCls: RSIDTWClassifierPickle = load("models/KNN-RSIDTW.pickle")
         self.setFixedHeight(h)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -18,8 +22,20 @@ class Buttons(QWidget):
         self.button1.setFixedHeight(h/3)
         self.button2.setFixedHeight(h/3)
         self.button1.clicked.connect(parent.canvas.clearImage)
+        self.button2.clicked.connect(lambda : self.predict(parent.canvas.drawing))
         self.layout.addWidget(self.button1, alignment=Qt.AlignTop)
         self.layout.addWidget(self.button2, alignment=Qt.AlignTop)
+
+    def plot_drawing(self, drawing: Drawing):
+        for stroke in drawing.strokes:
+            plt.plot(stroke[:, 0], stroke[:, 1], color='black', linewidth=1, solid_capstyle='round')
+        plt.axis('scaled')
+        plt.show()
+
+    def predict(self, drawing: Drawing):
+        self.plot_drawing(drawing)
+        text = "DTW: {0}\nRSIDTW: {1}".format(self.dtwCls.predict(drawing), self.rsidtwCls.predict(drawing))
+        self.parent().notepad.setPlainText(text)
 
 class Canvas(QWidget):
     def __init__(self, parent: QWidget, h: int) -> None:
@@ -69,7 +85,7 @@ class Canvas(QWidget):
         if event.button() == Qt.LeftButton:
             self.penDown = True
             self.lastPoint = event.pos()
-            self.curStroke.append(self.lastPoint.toTuple())
+            self.curStroke.append((self.lastPoint.x(), -1 * self.lastPoint.y()))
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if (event.buttons() & Qt.LeftButton) and self.penDown:
@@ -81,7 +97,7 @@ class Canvas(QWidget):
             self.penDown = False
             self.drawing.strokes.append(np.array(self.curStroke))
             print(self.drawing.strokes)
-            self.drawing.curStroke = []
+            self.curStroke = []
 
     def drawLineTo(self, endPoint: QPoint):
         painter = QPainter(self.image)
@@ -90,7 +106,7 @@ class Canvas(QWidget):
         r = self.penWidth // 2 + 2
         self.update(QRect(self.lastPoint, endPoint).normalized().adjusted(-r, -r, r, r))
         self.lastPoint = endPoint
-        self.curStroke.append(self.lastPoint.toTuple())
+        self.curStroke.append((self.lastPoint.x(), -1 * self.lastPoint.y()))
 
 class Notepad(QTextEdit):
     def __init__(self, parent: QWidget, h: int) -> None:
