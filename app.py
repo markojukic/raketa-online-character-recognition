@@ -81,21 +81,23 @@ class Canvas(QWidget):
 class MainWindow(QDialog):
     def __init__(self, models: dict, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Raketa Digit Recognizer")
+        self.setWindowTitle('Raketa Digit Recognizer')
         self.models = models
         self.canvas = Canvas(self)
-        self.erase_button = QPushButton("Obriši")
-        self.predict_button = QPushButton("Predvidi")
+        self.erase_button = QPushButton('Obriši')
+        self.predict_button = QPushButton('Predvidi')
         self.results = QTableWidget()
         self.results.setRowCount(len(self.models))
         self.results.setColumnCount(3)
         self.results.setFixedWidth(400)
-        self.results.setHorizontalHeaderLabels(["Model", "Predikcija", "Vrijeme"])
+        self.results.setHorizontalHeaderLabels(['Model', 'Predikcija', 'Vrijeme'])
         self.results.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.results.verticalHeader().setVisible(False)
         self.results.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         for i, (name, _) in enumerate(self.models):
-            self.results.setItem(i, 0, QTableWidgetItem(name))
+            checkbox = QTableWidgetItem(name)
+            checkbox.setCheckState(Qt.Checked)
+            self.results.setItem(i, 0, checkbox)
             self.results.setItem(i, 1, QTableWidgetItem())
             self.results.setItem(i, 2, QTableWidgetItem())
 
@@ -136,9 +138,10 @@ class MainWindow(QDialog):
 
         if self.canvas.drawing.strokes:
             for i, (_, cls) in enumerate(self.models):
-                start = time.time()
-                self.results.item(i, 1).setText(cls.predict(self.canvas.drawing))
-                self.results.item(i, 2).setText(f'{time.time() - start:.3f}s')
+                if self.results.item(i, 0).checkState() is Qt.Checked:
+                    start = time.time()
+                    self.results.item(i, 1).setText(cls.predict(self.canvas.drawing))
+                    self.results.item(i, 2).setText(f'{time.time() - start:.3f}s')
 
 
 def get_prediction(model, drawing: Drawing):
