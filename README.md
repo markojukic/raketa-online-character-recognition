@@ -8,6 +8,8 @@ pip install -r requirements.txt
 ```
 ## Opisi datoteka:
 
+`requirements.txt` - korišteni Python paketi
+
 `drawing.py` - osnovna klasa za crteže s kojom radimo
 
 `ujipenchars2.py` - parser za UJIpenchars2 skup podatka
