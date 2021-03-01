@@ -81,7 +81,7 @@ class Canvas(QWidget):
 class MainWindow(QDialog):
     def __init__(self, models: dict, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Prava Raketa")
+        self.setWindowTitle("Raketa Digit Recognizer")
         self.models = models
         self.canvas = Canvas(self)
         self.erase_button = QPushButton("Obriši")
