@@ -5,7 +5,7 @@ from PySide6.QtWidgets import *
 import numpy as np
 from typing import Optional
 from drawing import Drawing
-from classifier_pickle import load
+from joblib import load
 import time
 
 
@@ -81,21 +81,23 @@ class Canvas(QWidget):
 class MainWindow(QDialog):
     def __init__(self, models: dict, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Prava Raketa")
+        self.setWindowTitle('Raketa Digit Recognizer')
         self.models = models
         self.canvas = Canvas(self)
-        self.erase_button = QPushButton("Obriši")
-        self.predict_button = QPushButton("Predvidi")
+        self.erase_button = QPushButton('Obriši')
+        self.predict_button = QPushButton('Predvidi')
         self.results = QTableWidget()
         self.results.setRowCount(len(self.models))
         self.results.setColumnCount(3)
-        self.results.setHorizontalHeaderLabels(["Model", "Predikcija", "Vrijeme"])
         self.results.setFixedWidth(400)
+        self.results.setHorizontalHeaderLabels(['Model', 'Predikcija', 'Vrijeme'])
         self.results.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.results.verticalHeader().setVisible(False)
-        self.results.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        for i, name in enumerate(self.models):
-            self.results.setItem(i, 0, QTableWidgetItem(name))
+        self.results.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        for i, (name, _) in enumerate(self.models):
+            checkbox = QTableWidgetItem(name)
+            checkbox.setCheckState(Qt.Checked)
+            self.results.setItem(i, 0, checkbox)
             self.results.setItem(i, 1, QTableWidgetItem())
             self.results.setItem(i, 2, QTableWidgetItem())
 
@@ -135,17 +137,27 @@ class MainWindow(QDialog):
             self.results.item(i, 2).setText('')
 
         if self.canvas.drawing.strokes:
-            for i, (_, cls) in enumerate(self.models.items()):
-                start = time.time()
-                self.results.item(i, 1).setText(cls.predict(self.canvas.drawing))
-                self.results.item(i, 2).setText(f'{time.time() - start:.3f}s')
+            for i, (_, cls) in enumerate(self.models):
+                if self.results.item(i, 0).checkState() is Qt.Checked:
+                    start = time.time()
+                    self.results.item(i, 1).setText(cls.predict(self.canvas.drawing))
+                    self.results.item(i, 2).setText(f'{time.time() - start:.3f}s')
+
+
+def get_prediction(model, drawing: Drawing):
+    return model.predict(drawing)
 
 
 if __name__ == '__main__':
-    models = {
-        'KNN: DTW': load("models/KNN-DTW.pickle"),
-        'KNN: RSIDTW': load("models/KNN-RSIDTW.pickle"),
-    }
+    models = [
+        ('HOSVC (Slika)', load('models/HOSVD-Image.pickle')),
+        ('HOSVC (Video)', load('models/HOSVD-Video.pickle')),
+        ('HOSVD (Gradijent)', load('models/HOSVD-Gradient.pickle')),
+        ('KNN (DTW)', load('models/KNN-DTW.pickle')),
+        ('KNN (RSIDTW)', load('models/KNN-RSIDTW.pickle')),
+        ('SVM (DTW)', load('models/SVM-DTW.pickle')),
+        ('SVM (RSIDTW)', load('models/SVM-RSIDTW.pickle')),
+    ]
 
     app = QApplication(sys.argv)
 
