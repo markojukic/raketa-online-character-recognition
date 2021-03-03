@@ -150,12 +150,12 @@ def get_prediction(model, drawing: Drawing):
 
 if __name__ == '__main__':
     models = [
-        ('HOSVC (Slika)', load('models/HOSVD-Image.pickle')),
-        ('HOSVC (Video)', load('models/HOSVD-Video.pickle')),
+        ('HOSVD (Slika)', load('models/HOSVD-Image.pickle')),
+        ('HOSVD (Video)', load('models/HOSVD-Video.pickle')),
         ('HOSVD (Gradijent)', load('models/HOSVD-Gradient.pickle')),
-        ('KNN (DTW)', load('models/KNN-DTW.pickle')),
-        ('KNN (RSIDTW)', load('models/KNN-RSIDTW.pickle')),
+        ('k-NN (DTW)', load('models/KNN-DTW.pickle')),
         ('SVM (DTW)', load('models/SVM-DTW.pickle')),
+        ('k-NN (RSIDTW)', load('models/KNN-RSIDTW.pickle')),
         ('SVM (RSIDTW)', load('models/SVM-RSIDTW.pickle')),
     ]
 

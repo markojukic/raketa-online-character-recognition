@@ -34,6 +34,8 @@ pip install -r requirements.txt
 
 `HOSVD.ipynb` - Klasifikacija znamenki pomoću HOSVD: analiza modela
 
+`HOSVD za MNIST.ipynb` - Klasifikacija znamenki pomoću HOSVD na MNIST datasetu: analiza modela
+
 `HOSVD-Video.ipynb` - Klasifikacija znamenki pomoću slika i videa
 
 `HOSVD-Gradient.ipynb` - Klasifikacija znamenki pomoću gradijenta
